@@ -13,6 +13,7 @@ http.createServer((req, res) => {
 });
 
 async function startBot() {
+    // Kwenye Render tunatumia folda ya session, lakini tutafuta session ya zamani kama inasumbua
     const { state, saveCreds } = await useMultiFileAuthState("session");
 
     const sock = makeWASocket({
@@ -85,7 +86,7 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log("📌 SCAN QR CODE HAPA CHINI:");
+            console.log("📌 SCAN QR CODE HAPA KUPITIA RENDER LOGS:");
             qrcode.generate(qr, { small: true });
         }
 
