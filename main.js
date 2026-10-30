@@ -17,10 +17,12 @@ async function startBot() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 15000,
+        markOnlineOnConnect: true,
+        syncFullHistory: false,
         getMessage: async (key) => ({
             conversation: "WOLFE TZ BOT ACTIVE"
         })
@@ -40,9 +42,8 @@ async function startBot() {
             const pushName = msg.pushName || "Mtumiaji";
             const textMessage = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
-            // Hapa ndipo bot inaonyesha inatyPe (typing...) kwa kila ujumbe unaoingia
             if (remoteJid && !remoteJid.endsWith("@g.us") && remoteJid !== "status@broadcast") {
-                await sock.sendPresenceUpdate('composing', remoteJid);
+                await sock.sendPresenceUpdate('composing', remoteJid).catch(() => {});
             }
 
             if (remoteJid === "status@broadcast") {
@@ -54,10 +55,7 @@ async function startBot() {
                             key: msg.key
                         }
                     });
-                    console.log(`[STATUS VIEWED & REACTED 💜] Kutoka kwa: ${pushName}`);
-                } catch (e) {
-                    console.log("Imeshindikana ku-react kwenye status:", e);
-                }
+                } catch (e) {}
                 continue;
             }
 
@@ -87,7 +85,7 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            console.log("📌 SCAN QR CODE HAPA CHINI KUPITIA WHATSAPP YAKO:");
+            console.log("📌 SCAN QR CODE HAPA CHINI:");
             qrcode.generate(qr, { small: true });
         }
 
@@ -95,7 +93,6 @@ async function startBot() {
             const statusCode = (lastDisconnect?.error instanceof Boom.Boom) ? lastDisconnect.error.output.statusCode : null;
             console.log(`Connection imefungwa. Code: ${statusCode}`);
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                console.log("🔴 Session imekataliwa. Inasafisha mafaili ya zamani...");
                 fs.rmSync("session", { recursive: true, force: true });
             }
             startBot();
