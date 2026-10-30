@@ -2,6 +2,8 @@ import { makeWASocket, useMultiFileAuthState, DisconnectReason } from "@whiskeys
 import Boom from "@hapi/boom";
 import fs from "fs";
 import http from "http";
+import pino from "pino";
+import qrcode from "qrcode-terminal";
 
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -11,35 +13,39 @@ http.createServer((req, res) => {
     console.log(`WOLFE health server listening on port ${PORT}`);
 });
 
-const TARGET_PHONE_NUMBER = "255658178812"; 
-
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("session");
 
     const sock = makeWASocket({
         auth: state,
-        browser: ["Chrome (Linux)", "Chrome", "120.0.0.0"],
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 15000,
-        markOnlineOnConnect: true,
-        syncFullHistory: false,
-        getMessage: async (key) => ({
-            conversation: "WOLFE TZ BOT ACTIVE"
-        })
+        printQRInTerminal: true,
+        logger: pino({ level: "silent" }),
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    if (!sock.authState.creds.registered) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        try {
-            const code = await sock.requestPairingCode(TARGET_PHONE_NUMBER);
-            console.log(`\n📌 PAIRING CODE YAKO YA RENDER: ${code}\n`);
-        } catch (error) {
-            console.log("Imeshindikana kuleta pairing code:", error);
+    sock.ev.on("connection.update", (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log("==========================================");
+            console.log("📌 SCAN HII QR CODE KWENYE RENDER LOGS:");
+            console.log("==========================================");
+            qrcode.generate(qr, { small: true });
         }
-    }
+
+        if (connection === "close") {
+            const statusCode = (lastDisconnect?.error instanceof Boom.Boom) ? lastDisconnect.error.output.statusCode : null;
+            console.log(`Connection imefungwa. Code: ${statusCode}`);
+            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+                fs.rmSync("session", { recursive: true, force: true });
+            }
+            startBot();
+        } else if (connection === "open") {
+            console.log("✅ WOLFE TZ BOT IMEUNGANISHWA NA KUWASHA FEATURES ZOTE!");
+        }
+    });
 
     const messageStore = new Map();
 
@@ -89,20 +95,6 @@ async function startBot() {
                     await sock.sendMessage("255658178812@s.whatsapp.net", { text: alertText });
                 }
             }
-        }
-    });
-
-    sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === "close") {
-            const statusCode = (lastDisconnect?.error instanceof Boom.Boom) ? lastDisconnect.error.output.statusCode : null;
-            console.log(`Connection imefungwa. Code: ${statusCode}`);
-            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                fs.rmSync("session", { recursive: true, force: true });
-            }
-            startBot();
-        } else if (connection === "open") {
-            console.log("✅ WOLFE TZ BOT IMESHEHESHWA FEATURES ZOTE NA PORT 10000!");
         }
     });
 }
