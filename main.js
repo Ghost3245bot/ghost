@@ -11,7 +11,6 @@ http.createServer((req, res) => {
     console.log(`WOLFE health server listening on port ${PORT}`);
 });
 
-// Namba ya simu bila alama ya kujumlisha (+)
 const TARGET_PHONE_NUMBER = "255658178812"; 
 
 async function startBot() {
