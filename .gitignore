@@ -1,0 +1,11 @@
+node_modules/
+auth/
+data/
+.env
+*.log
+
+# WhatsApp credentials and sessions
+auth_info/
+auth_info-*/
+*creds.json
+*.session
