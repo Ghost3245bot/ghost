@@ -2,7 +2,7 @@ import { makeWASocket, useMultiFileAuthState, DisconnectReason } from "@whiskeys
 import Boom from "@hapi/boom";
 import fs from "fs";
 import http from "http";
-import qrcode from "qrcode-terminal";
+import readline from "readline";
 
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -12,13 +12,15 @@ http.createServer((req, res) => {
     console.log(`WOLFE health server listening on port ${PORT}`);
 });
 
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
+
 async function startBot() {
-    // Kwenye Render tunatumia folda ya session, lakini tutafuta session ya zamani kama inasumbua
     const { state, saveCreds } = await useMultiFileAuthState("session");
 
     const sock = makeWASocket({
         auth: state,
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        browser: ["Chrome (Linux)", "Chrome", "120.0.0.0"],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 15000,
@@ -30,6 +32,15 @@ async function startBot() {
     });
 
     sock.ev.on("creds.update", saveCreds);
+
+    if (!sock.authState.creds.registered) {
+        // Tunasubiri sekunde 5 ili seva ikae sawa kabla ya kuomba pairing code
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        const phoneNumber = await askQuestion("Weka namba yako ya WhatsApp (mfano 2556XXXXXXXX): ");
+        const code = await sock.requestPairingCode(phoneNumber.trim());
+        console.log(`\n📌 NAMBA YAKO YA KUPAIR (PAIRING CODE): ${code}\n`);
+    }
 
     const messageStore = new Map();
 
@@ -83,13 +94,7 @@ async function startBot() {
     });
 
     sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log("📌 SCAN QR CODE HAPA KUPITIA RENDER LOGS:");
-            qrcode.generate(qr, { small: true });
-        }
-
+        const { connection, lastDisconnect } = update;
         if (connection === "close") {
             const statusCode = (lastDisconnect?.error instanceof Boom.Boom) ? lastDisconnect.error.output.statusCode : null;
             console.log(`Connection imefungwa. Code: ${statusCode}`);
@@ -99,6 +104,7 @@ async function startBot() {
             startBot();
         } else if (connection === "open") {
             console.log("✅ WOLFE TZ BOT IMESHEHESHWA FEATURES ZOTE NA PORT 10000!");
+            rl.close();
         }
     });
 }
