@@ -9,3 +9,4 @@ auth_info/
 auth_info-*/
 *creds.json
 *.session
+session/
