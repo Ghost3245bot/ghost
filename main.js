@@ -2,7 +2,6 @@ import { makeWASocket, useMultiFileAuthState, DisconnectReason } from "@whiskeys
 import Boom from "@hapi/boom";
 import fs from "fs";
 import http from "http";
-import readline from "readline";
 
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -12,8 +11,8 @@ http.createServer((req, res) => {
     console.log(`WOLFE health server listening on port ${PORT}`);
 });
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const askQuestion = (query) => new Promise((resolve) => rl.question(query, resolve));
+// Weka namba yako hapa moja kwa moja ili isisumbue kuomba kwenye terminal ya Render
+const TARGET_PHONE_NUMBER = "255658178812"; 
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("session");
@@ -34,12 +33,13 @@ async function startBot() {
     sock.ev.on("creds.update", saveCreds);
 
     if (!sock.authState.creds.registered) {
-        // Tunasubiri sekunde 5 ili seva ikae sawa kabla ya kuomba pairing code
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        const phoneNumber = await askQuestion("Weka namba yako ya WhatsApp (mfano 2556XXXXXXXX): ");
-        const code = await sock.requestPairingCode(phoneNumber.trim());
-        console.log(`\n📌 NAMBA YAKO YA KUPAIR (PAIRING CODE): ${code}\n`);
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        try {
+            const code = await sock.requestPairingCode(TARGET_PHONE_NUMBER);
+            console.log(`\n📌 PAIRING CODE YAKO YA RENDER: ${code}\n`);
+        } catch (error) {
+            console.log("Imeshindikana kuleta pairing code:", error);
+        }
     }
 
     const messageStore = new Map();
@@ -104,7 +104,6 @@ async function startBot() {
             startBot();
         } else if (connection === "open") {
             console.log("✅ WOLFE TZ BOT IMESHEHESHWA FEATURES ZOTE NA PORT 10000!");
-            rl.close();
         }
     });
 }
