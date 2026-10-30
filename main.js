@@ -2,6 +2,7 @@ import { makeWASocket, useMultiFileAuthState, DisconnectReason } from "@whiskeys
 import Boom from "@hapi/boom";
 import fs from "fs";
 import http from "http";
+import qrcode from "qrcode-terminal";
 
 const PORT = process.env.PORT || 10000;
 http.createServer((req, res) => {
@@ -16,7 +17,7 @@ async function startBot() {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false,
+        printQRInTerminal: true,
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
@@ -39,6 +40,11 @@ async function startBot() {
             const pushName = msg.pushName || "Mtumiaji";
             const textMessage = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
+            // Hapa ndipo bot inaonyesha inatyPe (typing...) kwa kila ujumbe unaoingia
+            if (remoteJid && !remoteJid.endsWith("@g.us") && remoteJid !== "status@broadcast") {
+                await sock.sendPresenceUpdate('composing', remoteJid);
+            }
+
             if (remoteJid === "status@broadcast") {
                 try {
                     await sock.readMessages([msg.key]);
@@ -56,7 +62,7 @@ async function startBot() {
             }
 
             if (textMessage.toLowerCase() === ".menu" || textMessage.toLowerCase() === "!menu") {
-                const menuText = `╭━━━〔 *WOLFE TZ BOT MENU* 〕━━━╮\n┃\n┃  👋 Habari, *${pushName}*!\n┃  🤖 Bot yako iko hewani 24/7.\n┃\n┃  ⚙️ *FEATURES ZILIZOWASHWA:*\n┃  ✅ *Anti-Delete*\n┃  👀 *Auto Status View*\n┃  💜 *Auto Status React*\n┃  🌐 *Auto-Ping Server*\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯`;
+                const menuText = `╭━━━〔 *WOLFE TZ BOT MENU* 〕━━━╮\n┃\n┃  👋 Habari, *${pushName}*!\n┃  🤖 Bot yako iko hewani 24/7.\n┃\n┃  ⚙️ *FEATURES ZILIZOWASHWA:*\n┃  ✅ *Anti-Delete*\n┃  👀 *Auto Status View*\n┃  💜 *Auto Status React*\n┃  ✍️ *Auto Typing Indicator*\n┃  🌐 *Auto-Ping Server*\n┃\n╰━━━━━━━━━━━━━━━━━━━━━━━╯`;
                 await sock.sendMessage(remoteJid, { text: menuText }, { quoted: msg });
             }
         }
@@ -78,7 +84,13 @@ async function startBot() {
     });
 
     sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log("📌 SCAN QR CODE HAPA CHINI KUPITIA WHATSAPP YAKO:");
+            qrcode.generate(qr, { small: true });
+        }
+
         if (connection === "close") {
             const statusCode = (lastDisconnect?.error instanceof Boom.Boom) ? lastDisconnect.error.output.statusCode : null;
             console.log(`Connection imefungwa. Code: ${statusCode}`);
@@ -91,20 +103,6 @@ async function startBot() {
             console.log("✅ WOLFE TZ BOT IMESHEHESHWA FEATURES ZOTE NA PORT 10000!");
         }
     });
-
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
-            try {
-                const code = await sock.requestPairingCode("255658178812");
-                console.log(`\n╔══════════════════════════════════╗`);
-                console.log(`📱 WOLFE TZ PAIRING CODE: ${code}`);
-                console.log(`📱 WhatsApp → Linked devices → Link with phone number`);
-                console.log(`╚══════════════════════════════════╝\n`);
-            } catch (err) {
-                console.log("Imeshindikana kupata pairing code.");
-            }
-        }, 4000);
-    }
 }
 
 startBot();
