@@ -11,7 +11,7 @@ http.createServer((req, res) => {
     console.log(`WOLFE health server listening on port ${PORT}`);
 });
 
-// Weka namba yako hapa moja kwa moja ili isisumbue kuomba kwenye terminal ya Render
+// Namba ya simu bila alama ya kujumlisha (+)
 const TARGET_PHONE_NUMBER = "255658178812"; 
 
 async function startBot() {
@@ -33,7 +33,7 @@ async function startBot() {
     sock.ev.on("creds.update", saveCreds);
 
     if (!sock.authState.creds.registered) {
-        await new Promise(resolve => setTimeout(resolve, 4000));
+        await new Promise(resolve => setTimeout(resolve, 5000));
         try {
             const code = await sock.requestPairingCode(TARGET_PHONE_NUMBER);
             console.log(`\n📌 PAIRING CODE YAKO YA RENDER: ${code}\n`);
