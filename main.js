@@ -4,7 +4,8 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 
 import pino from 'pino';
-import qrcode from 'qrcode-terminal';
+import QRCode from 'qrcode';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -16,10 +17,39 @@ const ROOT = process.cwd();
 const AUTH_DIR = path.join(ROOT, 'auth');
 const DATA_DIR = path.join(ROOT, 'data');
 
-// WOLFE_RENDER_HEALTH_SERVER
+// WOLFE_RENDER_HEALTH_AND_SECURE_QR_SERVER
 const PORT = Number(process.env.PORT || 10000);
+const QR_ACCESS_TOKEN = randomBytes(24).toString('hex');
+let currentOwnerQR = null;
 
-http.createServer((req, res) => {
+http.createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+
+  if (url.pathname === '/owner-qr') {
+    if (url.searchParams.get('token') !== QR_ACCESS_TOKEN || !currentOwnerQR) {
+      res.writeHead(404);
+      return res.end('QR unavailable');
+    }
+
+    try {
+      const png = await QRCode.toBuffer(currentOwnerQR, {
+        type: 'png',
+        width: 500,
+        margin: 3,
+        errorCorrectionLevel: 'H'
+      });
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'no-store, no-cache, must-revalidate'
+      });
+      return res.end(png);
+    } catch (error) {
+      console.error('QR image error:', error.message);
+      res.writeHead(500);
+      return res.end('QR generation failed');
+    }
+  }
+
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ status: 'WOLFE BOT ACTIVE' }));
 }).listen(PORT, '0.0.0.0', () => {
@@ -327,10 +357,14 @@ async function startSocket(id, isOwner = false) {
       const { connection, qr, lastDisconnect } = update;
 
       if (qr && isOwner && !authState.creds.registered) {
-        console.log('\n👑 WOLFE TZ OWNER QR CODE');
-        console.log('Scan using WhatsApp > Linked devices > Link a device.\n');
-        qrcode.generate(qr, { small: true });
+        currentOwnerQR = qr;
+        const baseURL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+        console.log('\n👑 WOLFE TZ OWNER QR IMAGE:');
+        console.log(`${baseURL}/owner-qr?token=${QR_ACCESS_TOKEN}`);
+        console.log('Open this link to display the QR image, then scan it with WhatsApp.\n');
       }
+
+      if (connection === 'open' && isOwner) currentOwnerQR = null;
 
       if (connection === 'open') {
         console.log(`🟢 ${isOwner ? 'OWNER' : 'CLIENT ' + id} ONLINE`);
