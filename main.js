@@ -323,24 +323,13 @@ async function startSocket(id, isOwner = false) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    let ownerPairingRequested = false;
-
     sock.ev.on('connection.update', async (update) => {
       const { connection, qr, lastDisconnect } = update;
 
-      if (qr && isOwner && !authState.creds.registered && !ownerPairingRequested) {
-        ownerPairingRequested = true;
-        console.log('👑 WOLFE: WhatsApp pairing is ready. Requesting owner code...');
-        setTimeout(async () => {
-          if (sockets.get(id) !== sock || authState.creds.registered) return;
-          try {
-            const code = await sock.requestPairingCode(OWNER_NUMBER);
-            console.log('\n🔐 OWNER PAIRING CODE: ' + code);
-            console.log('WhatsApp > Linked devices > Link a device > Link with phone number.\n');
-          } catch (error) {
-            console.error('Owner pairing code failed:', error.message);
-          }
-        }, 1000);
+      if (qr && isOwner && !authState.creds.registered) {
+        console.log('\n👑 WOLFE TZ OWNER QR CODE');
+        console.log('Scan using WhatsApp > Linked devices > Link a device.\n');
+        qrcode.generate(qr, { small: true });
       }
 
       if (connection === 'open') {
