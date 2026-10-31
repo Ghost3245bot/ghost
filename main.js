@@ -323,12 +323,24 @@ async function startSocket(id, isOwner = false) {
 
     sock.ev.on('creds.update', saveCreds);
 
+    let ownerPairingRequested = false;
+
     sock.ev.on('connection.update', async (update) => {
       const { connection, qr, lastDisconnect } = update;
 
-      if (qr && isOwner && !authState.creds.registered) {
-        console.log('\n👑 WOLFE TZ BOT — SCAN QR KWA WHATSAPP\n');
-        qrcode.generate(qr, { small: true });
+      if (qr && isOwner && !authState.creds.registered && !ownerPairingRequested) {
+        ownerPairingRequested = true;
+        console.log('👑 WOLFE: WhatsApp pairing is ready. Requesting owner code...');
+        setTimeout(async () => {
+          if (sockets.get(id) !== sock || authState.creds.registered) return;
+          try {
+            const code = await sock.requestPairingCode(OWNER_NUMBER);
+            console.log('\n🔐 OWNER PAIRING CODE: ' + code);
+            console.log('WhatsApp > Linked devices > Link a device > Link with phone number.\n');
+          } catch (error) {
+            console.error('Owner pairing code failed:', error.message);
+          }
+        }, 1000);
       }
 
       if (connection === 'open') {
@@ -431,32 +443,19 @@ Content: ${cached.body}`
       }
     });
 
-    if (!authState.creds.registered) {
-      if (isOwner) {
-        setTimeout(async () => {
-          if (sockets.get(id) !== sock || authState.creds.registered) return;
-          try {
-            const code = await sock.requestPairingCode(OWNER_NUMBER);
-            console.log('\n🔐 OWNER PAIRING CODE: ' + code);
-            console.log('Fungua WhatsApp > Linked devices > Link a device > Link with phone number.\n');
-          } catch (error) {
-            console.error('Owner pairing code failed:', error.message);
-          }
-        }, 3000);
-      } else {
-        setTimeout(async () => {
-          if (sockets.get(id) !== sock || removed.has(id)) return;
+    if (!authState.creds.registered && !isOwner) {
+      setTimeout(async () => {
+        if (sockets.get(id) !== sock || removed.has(id)) return;
 
-          try {
-            const code = await sock.requestPairingCode(id);
-            console.log(`\n🔐 PAIRING CODE FOR CLIENT ${id}: ${code}\n`);
-          } catch (error) {
-            console.error(
-              `Pairing code failed for ${id}: ${error.message}`
-            );
-          }
-        }, 2500);
-      }
+        try {
+          const code = await sock.requestPairingCode(id);
+          console.log(`\n🔐 PAIRING CODE FOR CLIENT ${id}: ${code}\n`);
+        } catch (error) {
+          console.error(
+            `Pairing code failed for ${id}: ${error.message}`
+          );
+        }
+      }, 2500);
     }
   } catch (error) {
     sockets.delete(id);
