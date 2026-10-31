@@ -12,7 +12,7 @@ http.createServer((req, res) => {
     console.log(`WOLFE health server listening on port ${PORT}`);
 });
 
-const TARGET_PHONE_NUMBER = "255658178812"; 
+const TARGET_PHONE_NUMBER = process.env.TARGET_PHONE_NUMBER;
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState("session");
@@ -26,16 +26,20 @@ async function startBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    if (!sock.authState.creds.registered) {
-        await new Promise(resolve => setTimeout(resolve, 8000));
-        try {
-            console.log("⏳ Inaomba Pairing Code kutoka WhatsApp...");
-            const code = await sock.requestPairingCode(TARGET_PHONE_NUMBER);
-            console.log(`\n========================================`);
-            console.log(`📌 PAIRING CODE YAKO HAPA: ${code}`);
-            console.log(`========================================\n`);
-        } catch (error) {
-            console.log("❌ Imeshindikana kuleta pairing code:", error);
+    if (!state.creds.registered) {
+        if (!TARGET_PHONE_NUMBER) {
+            console.error("❌ Weka TARGET_PHONE_NUMBER kwenye Render Environment Variables.");
+        } else {
+            await new Promise(resolve => setTimeout(resolve, 8000));
+            try {
+                console.log("⏳ Inaomba Pairing Code kutoka WhatsApp...");
+                const code = await sock.requestPairingCode(TARGET_PHONE_NUMBER);
+                console.log("\n========================================");
+                console.log(`📌 PAIRING CODE YAKO HAPA: ${code}`);
+                console.log("========================================\n");
+            } catch (error) {
+                console.error("❌ Imeshindikana kuleta pairing code:", error.message);
+            }
         }
     }
 
@@ -45,9 +49,10 @@ async function startBot() {
             const statusCode = (lastDisconnect?.error instanceof Boom.Boom) ? lastDisconnect.error.output.statusCode : null;
             console.log(`Connection imefungwa. Code: ${statusCode}`);
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                fs.rmSync("session", { recursive: true, force: true });
+                console.error("WhatsApp session imekataliwa. Session imehifadhiwa; hakuna credentials zilizofutwa.");
+                return;
             }
-            startBot();
+            setTimeout(() => startBot(), 5000);
         } else if (connection === "open") {
             console.log("✅ WOLFE TZ BOT IMEUNGANISHWA NA KUWASHA FEATURES ZOTE!");
         }
