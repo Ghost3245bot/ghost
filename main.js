@@ -360,13 +360,40 @@ async function startSocket(id, isOwner = false) {
     const { state: authState, saveCreds } =
       await useMultiFileAuthState(authPath);
 
+    const outgoingMessageStore = new Map();
+
     const sock = makeWASocket({
       auth: authState,
       logger: log,
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      generateHighQualityLinkPreview: false
+      generateHighQualityLinkPreview: false,
+      getMessage: async (key) => {
+        return outgoingMessageStore.get(`${key.remoteJid}:${key.id}`);
+      }
     });
+
+    const originalSendMessage = sock.sendMessage.bind(sock);
+
+    sock.sendMessage = async (jid, content, options) => {
+      const result = await originalSendMessage(jid, content, options);
+
+      if (result?.key?.id && typeof content?.text === 'string') {
+        const cacheKey = `${result.key.remoteJid || jid}:${result.key.id}`;
+
+        outgoingMessageStore.set(cacheKey, {
+          conversation: content.text
+        });
+
+        while (outgoingMessageStore.size > 500) {
+          outgoingMessageStore.delete(
+            outgoingMessageStore.keys().next().value
+          );
+        }
+      }
+
+      return result;
+    };
 
     const contactNames = new Map();
 
