@@ -67,9 +67,9 @@ if (process.env.RENDER_EXTERNAL_URL) {
     } catch (error) {
       console.log('AUTO-PING ERROR:', error.message);
     }
-  }, 5 * 60 * 1000);
+  }, 4 * 60 * 1000);
 
-  console.log('WOLFE AUTO-PING: every 5 minutes');
+  console.log('WOLFE AUTO-PING: every 4 minutes');
 }
 const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
@@ -105,6 +105,8 @@ if (!Array.isArray(state.viewed)) state.viewed = [];
 if (!Array.isArray(state.reacted)) state.reacted = [];
 
 const sockets = new Map();
+const onlineClients = new Set();
+let ownerSocket = null;
 const starting = new Set();
 const removed = new Set();
 const messageCache = new Map();
@@ -126,7 +128,7 @@ function saveState() {
   writeJSON(STATE_FILE, state);
 }
 
-function rememberMessage(msg) {
+function rememberMessage(msg, sessionId, contactNames) {
   const key = msg.key;
   if (!key?.id || key.remoteJid === 'status@broadcast') return;
 
@@ -137,11 +139,16 @@ function rememberMessage(msg) {
 
   if (!body) return;
 
-  const cacheKey = `${key.remoteJid}:${key.id}`;
+  const sender = key.participant || key.remoteJid;
+  const cacheKey = `${sessionId}:${key.remoteJid}:${key.id}`;
+
   messageCache.set(cacheKey, {
     body,
     chat: key.remoteJid,
-    sender: key.participant || key.remoteJid,
+    chatName: contactNames.get(key.remoteJid) || key.remoteJid,
+    sender,
+    senderName: contactNames.get(sender) || msg.pushName || sender,
+    sessionId,
     time: Date.now()
   });
 
@@ -150,13 +157,13 @@ function rememberMessage(msg) {
   }
 }
 
-async function handleStatus(sock, msg, isOwner) {
-  if (!isOwner || msg.key.remoteJid !== 'status@broadcast') return;
+async function handleStatus(sock, msg, sessionId) {
+  if (msg.key.remoteJid !== 'status@broadcast') return;
 
   const key = msg.key;
   if (!key.id) return;
 
-  const statusId = `${key.participant || ''}:${key.id}`;
+  const statusId = `${sessionId}:${key.participant || ''}:${key.id}`;
 
   if (state.autoview && !state.viewed.includes(statusId)) {
     try {
@@ -207,9 +214,9 @@ async function handleOwnerCommand(sock, msg, text) {
 !autoview on/off — Auto-view
 !autoreact on/off — Auto-react
 !setemoji 💜 — Reaction emoji
-!addclient 255XXXXXXXXX — Add client
+!addclient 255XXXXXXXXX — Add client (pairing code to Owner)
 !clients — List clients
-!delclient 255XXXXXXXXX — Remove client
+!removeclient 255XXXXXXXXX — Remove client (alias: !delclient)
 
 Owner: ${OWNER_NUMBER}`
       );
@@ -260,8 +267,8 @@ Clients: ${clients.length}`
     case '!clients':
       return reply(
         clients.length
-          ? '👥 REGISTERED CLIENTS\n' +
-            clients.map((n, i) => `${i + 1}. ${n}`).join('\n')
+          ? '👥 CLIENT STATUS\n' +
+            clients.map((n, i) => `${i + 1}. ${n} — ${onlineClients.has(n) ? '🟢 ONLINE' : '🔴 OFFLINE'}`).join('\n')
           : 'Hakuna clients bado. Tumia !addclient 255XXXXXXXXX'
       );
 
@@ -286,14 +293,15 @@ Clients: ${clients.length}`
 
       await reply(
 `✅ Client ${number} ameongezwa.
-Aunganishe akaunti yake mwenyewe kwa pairing code itakayoonekana kwenye terminal.
-Usishiriki code hiyo na mtu mwingine.`
+Pairing code itatumwa privately kwenye WhatsApp ya Owner.
+Mteja aingize code hiyo kwenye Linked Devices > Link with phone number.`
       );
 
-      startSocket(number, true);
+      startSocket(number, false);
       return;
     }
 
+    case '!removeclient':
     case '!delclient': {
       const number = normalizeNumber(args[0]);
 
@@ -308,14 +316,16 @@ Usishiriki code hiyo na mtu mwingine.`
       const socket = sockets.get(number);
       if (socket) {
         sockets.delete(number);
-        try {
-          socket.end();
-        } catch {}
+        onlineClients.delete(number);
+        try { await socket.logout(); } catch {}
+        try { socket.end(); } catch {}
+      }
+      try { fs.rmSync(path.join(AUTH_DIR, `client-${number}`), { recursive: true, force: true }); } catch (error) {
+        console.error(`Auth cleanup failed for ${number}:`, error.message);
       }
 
       return reply(
-`🗑️ Client ${number} ameondolewa kwenye list na kusimamishwa.
-Auth files zimehifadhiwa kwenye kifaa hiki; zifute mwenyewe tu ukiamua kutenganisha session kabisa.`
+`🗑️ Client ${number} ameondolewa, session imesimamishwa na auth files zimefutwa.`
       );
     }
 
@@ -349,9 +359,26 @@ async function startSocket(id, isOwner = false) {
       generateHighQualityLinkPreview: false
     });
 
+    const contactNames = new Map();
+
     sockets.set(id, sock);
+    if (isOwner) ownerSocket = sock;
 
     sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('contacts.upsert', (contacts) => {
+      for (const contact of contacts || []) {
+        const name = contact.name || contact.notify || contact.verifiedName;
+        if (contact.id && name) contactNames.set(contact.id, name);
+      }
+    });
+
+    sock.ev.on('contacts.update', (contacts) => {
+      for (const contact of contacts || []) {
+        const name = contact.name || contact.notify || contact.verifiedName;
+        if (contact.id && name) contactNames.set(contact.id, name);
+      }
+    });
 
     sock.ev.on('connection.update', async (update) => {
       const { connection, qr, lastDisconnect } = update;
@@ -367,10 +394,13 @@ async function startSocket(id, isOwner = false) {
       if (connection === 'open' && isOwner) currentOwnerQR = null;
 
       if (connection === 'open') {
+        onlineClients.add(id);
         console.log(`🟢 ${isOwner ? 'OWNER' : 'CLIENT ' + id} ONLINE`);
       }
 
       if (connection === 'close') {
+        onlineClients.delete(id);
+        if (isOwner && ownerSocket === sock) ownerSocket = null;
         if (sockets.get(id) === sock) sockets.delete(id);
 
         const code = lastDisconnect?.error?.output?.statusCode;
@@ -409,29 +439,61 @@ async function startSocket(id, isOwner = false) {
           timer.unref();
           typingTimers.set(typingKey, timer);
         }
-        await handleStatus(sock, msg, isOwner).catch(() => {});
-        rememberMessage(msg);
+        const contactSenderJid = msg.key.participant || msg.key.remoteJid;
+        if (msg.pushName && contactSenderJid) {
+          contactNames.set(contactSenderJid, msg.pushName);
+        }
+
+        await handleStatus(sock, msg, id).catch(() => {});
+        rememberMessage(msg, id, contactNames);
 
         const protocol = msg.message.protocolMessage;
-        if (protocol?.type === 0 && isOwner) {
+        if (protocol?.type === 0) {
           const deletedKey = protocol.key;
           const cached = deletedKey?.id
-            ? messageCache.get(`${deletedKey.remoteJid}:${deletedKey.id}`)
+            ? messageCache.get(`${id}:${deletedKey.remoteJid}:${deletedKey.id}`)
             : null;
 
           if (cached) {
             try {
-              await sock.sendMessage(OWNER_JID, {
+              const ownJid = sock.user?.id?.replace(/:\d+@/, '@');
+              if (!ownJid) throw new Error('Session identity unavailable');
+
+              const groupMeta = cached.chat.endsWith('@g.us')
+                ? await sock.groupMetadata(cached.chat).catch(() => null)
+                : null;
+
+              const senderName =
+                cached.senderName ||
+                contactNames.get(cached.sender) ||
+                cached.sender;
+
+              const chatName =
+                groupMeta?.subject ||
+                cached.chatName ||
+                cached.chat;
+
+              await sock.sendMessage(ownJid, {
                 text:
-`🗑️ MESSAGE DELETED
-Chat: ${cached.chat}
-Sender: ${cached.sender}
-Content: ${cached.body}`
+`🗑️ WOLFE TZ — MESSAGE DELETED
+Session: ${id}
+
+Chat: ${chatName}
+Chat ID: ${cached.chat}
+
+Sender: ${senderName}
+Sender ID: ${cached.sender}
+
+Deleted message:
+${cached.body}`
               });
+
               messageCache.delete(
-                `${deletedKey.remoteJid}:${deletedKey.id}`
+                `${id}:${deletedKey.remoteJid}:${deletedKey.id}`
               );
-            } catch {}
+            } catch (error) {
+              console.error(`Anti-delete notification failed for ${id}:`, error.message);
+            }
           }
           continue;
         }
@@ -472,7 +534,12 @@ Content: ${cached.body}`
 
         try {
           const code = await sock.requestPairingCode(id);
-          console.log(`\n🔐 PAIRING CODE FOR CLIENT ${id}: ${code}\n`);
+          if (!ownerSocket) throw new Error('Owner session is not connected; pairing code was not delivered');
+          await ownerSocket.sendMessage(OWNER_JID, { text: `🔐 WOLFE TZ CLIENT PAIRING
+Number: ${id}
+Code: ${code}
+
+Enter this code in WhatsApp > Linked Devices > Link with phone number. Keep it private.` });
         } catch (error) {
           console.error(
             `Pairing code failed for ${id}: ${error.message}`
