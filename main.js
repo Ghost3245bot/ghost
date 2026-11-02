@@ -178,12 +178,21 @@ async function handleStatus(sock, msg, sessionId) {
 
   if (state.autoreact && !state.reacted.includes(statusId)) {
     try {
-      await sock.sendMessage('status@broadcast', {
-        react: {
-          text: state.emoji || '💜',
-          key
+      const participant = key.participant;
+      if (!participant) throw new Error('Status author JID missing');
+
+      await sock.sendMessage(
+        'status@broadcast',
+        {
+          react: {
+            text: state.emoji || '💜',
+            key
+          }
+        },
+        {
+          statusJidList: [participant]
         }
-      });
+      );
 
       state.reacted.push(statusId);
       state.reacted = state.reacted.slice(-5000);
