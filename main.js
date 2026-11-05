@@ -157,13 +157,16 @@ function rememberMessage(msg, sessionId, contactNames) {
   }
 }
 
+const statusReactionInFlight = new Set();
+
 async function handleStatus(sock, msg, sessionId) {
   if (msg.key.remoteJid !== 'status@broadcast') return;
 
   const key = msg.key;
   if (!key.id) return;
 
-  const statusId = `${sessionId}:${key.participant || ''}:${key.id}`;
+  const participant = key.participant || msg.participant;
+  const statusId = `${sessionId}:${participant || ''}:${key.id}`;
 
   if (state.autoview && !state.viewed.includes(statusId)) {
     try {
@@ -176,30 +179,44 @@ async function handleStatus(sock, msg, sessionId) {
     }
   }
 
-  if (state.autoreact && !state.reacted.includes(statusId)) {
-    try {
-      const participant = key.participant;
-      if (!participant) throw new Error('Status author JID missing');
+  if (!state.autoreact || state.reacted.includes(statusId)) return;
+  if (statusReactionInFlight.has(statusId)) return;
 
-      await sock.sendMessage(
-        'status@broadcast',
-        {
-          react: {
-            text: state.emoji || '💜',
-            key
-          }
-        },
-        {
-          statusJidList: [participant]
+  if (!participant) {
+    console.error('Status reaction skipped: author JID missing:', key.id);
+    return;
+  }
+
+  statusReactionInFlight.add(statusId);
+
+  try {
+    const emoji = state.emoji || '💜';
+
+    await sock.sendMessage(
+      'status@broadcast',
+      {
+        react: {
+          text: emoji,
+          key
         }
-      );
+      },
+      {
+        statusJidList: [participant]
+      }
+    );
 
-      state.reacted.push(statusId);
-      state.reacted = state.reacted.slice(-5000);
-      saveState();
-    } catch (error) {
-      console.error('Status reaction failed:', error.message);
-    }
+    state.reacted.push(statusId);
+    state.reacted = state.reacted.slice(-5000);
+    saveState();
+
+    console.log(`💜 STATUS REACTION SENT: ${emoji} -> ${participant}`);
+  } catch (error) {
+    console.error(
+      `Status reaction failed (${key.id}):`,
+      error.stack || error.message
+    );
+  } finally {
+    statusReactionInFlight.delete(statusId);
   }
 }
 
@@ -378,12 +395,11 @@ async function startSocket(id, isOwner = false) {
     sock.sendMessage = async (jid, content, options) => {
       const result = await originalSendMessage(jid, content, options);
 
-      if (result?.key?.id && typeof content?.text === 'string') {
+      if (result?.key?.id && content && typeof content === 'object') {
         const cacheKey = `${result.key.remoteJid || jid}:${result.key.id}`;
 
-        outgoingMessageStore.set(cacheKey, {
-          conversation: content.text
-        });
+        // Preserve the complete outgoing payload for Baileys retry requests.
+        outgoingMessageStore.set(cacheKey, content);
 
         while (outgoingMessageStore.size > 500) {
           outgoingMessageStore.delete(
