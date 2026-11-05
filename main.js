@@ -1,6 +1,7 @@
 import makeWASocket, {
   useMultiFileAuthState,
-  DisconnectReason
+  DisconnectReason,
+  BufferJSON
 } from '@whiskeysockets/baileys';
 
 import pino from 'pino';
@@ -109,7 +110,32 @@ const onlineClients = new Set();
 let ownerSocket = null;
 const starting = new Set();
 const removed = new Set();
+// WOLFE_PERSISTENT_ANTI_DELETE_CACHE
+const messageCacheFile = path.join(AUTH_DIR, 'message-cache.json');
 const messageCache = new Map();
+
+try {
+  const savedCache = readJSON(messageCacheFile, {});
+  for (const [key, value] of Object.entries(savedCache)) {
+    messageCache.set(key, value);
+  }
+} catch (error) {
+  console.error('Anti-delete cache load failed:', error.message);
+}
+
+function saveMessageCache() {
+  const tempFile = `${messageCacheFile}.tmp`;
+  try {
+    fs.writeFileSync(
+      tempFile,
+      JSON.stringify(Object.fromEntries(messageCache), null, 2)
+    );
+    fs.renameSync(tempFile, messageCacheFile);
+  } catch (error) {
+    console.error('Anti-delete cache save failed:', error.message);
+    try { fs.rmSync(tempFile, { force: true }); } catch {}
+  }
+}
 const typingTimers = new Map(); // WOLFE_INSTANT_TYPING_60S
 
 const log = pino({ level: 'silent' });
@@ -155,6 +181,8 @@ function rememberMessage(msg, sessionId, contactNames) {
   while (messageCache.size > 1000) {
     messageCache.delete(messageCache.keys().next().value);
   }
+
+  saveMessageCache();
 }
 
 const statusReactionInFlight = new Set();
@@ -166,12 +194,12 @@ async function handleStatus(sock, msg, sessionId) {
   if (!key.id) return;
 
   const participant = key.participant || msg.participant;
-  const statusId = `${sessionId}:${participant || ''}:${key.id}`;
+  const viewId = `${participant || sessionId}:${key.id}`;
 
-  if (state.autoview && !state.viewed.includes(statusId)) {
+  if (state.autoview && !state.viewed.includes(viewId)) {
     try {
       await sock.readMessages([key]);
-      state.viewed.push(statusId);
+      state.viewed.push(viewId);
       state.viewed = state.viewed.slice(-5000);
       saveState();
     } catch (error) {
@@ -179,42 +207,49 @@ async function handleStatus(sock, msg, sessionId) {
     }
   }
 
-  if (!state.autoreact || state.reacted.includes(statusId)) return;
-  if (statusReactionInFlight.has(statusId)) return;
-
   if (!participant) {
     console.error('Status reaction skipped: author JID missing:', key.id);
     return;
   }
 
+  const statusId = `${participant}:${key.id}`;
+
+  if (!state.autoreact || state.reacted.includes(statusId)) return;
+  if (statusReactionInFlight.has(statusId)) return;
+
   statusReactionInFlight.add(statusId);
 
   try {
     const emoji = state.emoji || '💜';
+    let sent = false;
 
-    await sock.sendMessage(
-      'status@broadcast',
-      {
-        react: {
-          text: emoji,
-          key
+    for (let attempt = 1; attempt <= 3 && !sent; attempt++) {
+      try {
+        await sock.sendMessage(
+          'status@broadcast',
+          { react: { text: emoji, key } },
+          { statusJidList: [participant] }
+        );
+        sent = true;
+      } catch (error) {
+        console.error(
+          `Status reaction attempt ${attempt}/3 failed (${key.id}):`,
+          error.message
+        );
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 1500 * attempt));
         }
-      },
-      {
-        statusJidList: [participant]
       }
-    );
+    }
 
-    state.reacted.push(statusId);
-    state.reacted = state.reacted.slice(-5000);
-    saveState();
-
-    console.log(`💜 STATUS REACTION SENT: ${emoji} -> ${participant}`);
-  } catch (error) {
-    console.error(
-      `Status reaction failed (${key.id}):`,
-      error.stack || error.message
-    );
+    if (sent) {
+      state.reacted.push(statusId);
+      state.reacted = state.reacted.slice(-5000);
+      saveState();
+      console.log(`💜 STATUS REACTION SENT: ${emoji} -> ${participant}`);
+    } else {
+      console.error(`Status reaction failed after 3 attempts: ${statusId}`);
+    }
   } finally {
     statusReactionInFlight.delete(statusId);
   }
@@ -414,7 +449,22 @@ async function startSocket(id, isOwner = false) {
     const { state: authState, saveCreds } =
       await useMultiFileAuthState(authPath);
 
-    const outgoingMessageStore = new Map();
+    // WOLFE_PERSISTENT_MESSAGE_RETRY_CACHE
+    const messageStoreFile = path.join(authPath, 'message-store.json');
+    let savedOutgoingMessages = {};
+
+    try {
+      if (fs.existsSync(messageStoreFile)) {
+        savedOutgoingMessages =
+          JSON.parse(fs.readFileSync(messageStoreFile, 'utf8'), BufferJSON.reviver) || {};
+      }
+    } catch (error) {
+      console.error('Message cache load failed:', error.message);
+    }
+
+    const outgoingMessageStore = new Map(
+      Object.entries(savedOutgoingMessages)
+    );
 
     const sock = makeWASocket({
       auth: authState,
@@ -442,6 +492,22 @@ async function startSocket(id, isOwner = false) {
           outgoingMessageStore.delete(
             outgoingMessageStore.keys().next().value
           );
+        }
+
+        // Save atomically so retry messages survive process restarts.
+        const tempMessageStoreFile = `${messageStoreFile}.tmp`;
+        try {
+          fs.writeFileSync(
+            tempMessageStoreFile,
+            JSON.stringify(
+              Object.fromEntries(outgoingMessageStore),
+              BufferJSON.replacer
+            )
+          );
+          fs.renameSync(tempMessageStoreFile, messageStoreFile);
+        } catch (error) {
+          console.error('Message cache save failed:', error.message);
+          try { fs.rmSync(tempMessageStoreFile, { force: true }); } catch {}
         }
       }
 
@@ -583,6 +649,7 @@ ${cached.body}`
               messageCache.delete(
                 `${id}:${deletedKey.remoteJid}:${deletedKey.id}`
               );
+              saveMessageCache();
             } catch (error) {
               console.error(`Anti-delete notification failed for ${id}:`, error.message);
             }
