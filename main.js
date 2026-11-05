@@ -474,7 +474,10 @@ async function startSocket(id, isOwner = false) {
 
       if (qr && isOwner && !authState.creds.registered) {
         currentOwnerQR = qr;
-        const baseURL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+        const baseURL = process.env.BASE_URL ||
+          (process.env.RAILWAY_PUBLIC_DOMAIN
+            ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+            : process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`);
         console.log('\n👑 WOLFE TZ OWNER QR IMAGE:');
         console.log(`${baseURL}/owner-qr?token=${QR_ACCESS_TOKEN}`);
         console.log('Open this link to display the QR image, then scan it with WhatsApp.\n');
