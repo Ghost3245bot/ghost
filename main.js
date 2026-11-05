@@ -15,7 +15,7 @@ const OWNER_NUMBER = '255658178812';
 const OWNER_JID = `${OWNER_NUMBER}@s.whatsapp.net`;
 const PREFIX = '!';
 const ROOT = process.cwd();
-const AUTH_DIR = path.join(ROOT, 'auth');
+const AUTH_DIR = path.join(ROOT, 'auth_info');
 const DATA_DIR = path.join(ROOT, 'data');
 
 // WOLFE_RENDER_HEALTH_AND_SECURE_QR_SERVER
@@ -166,7 +166,7 @@ function rememberMessage(msg, sessionId, contactNames) {
   if (!body) return;
 
   const sender = key.participant || key.remoteJid;
-  const cacheKey = `${sessionId}:${key.remoteJid}:${key.id}`;
+  const cacheKey = `${key.remoteJid}:${key.id}`;
 
   messageCache.set(cacheKey, {
     body,
@@ -619,7 +619,7 @@ async function startSocket(id, isOwner = false) {
         if (protocol?.type === 0) {
           const deletedKey = protocol.key;
           const cached = deletedKey?.id
-            ? messageCache.get(`${id}:${deletedKey.remoteJid}:${deletedKey.id}`)
+            ? messageCache.get(`${deletedKey.remoteJid}:${deletedKey.id}`)
             : null;
 
           if (cached) {
@@ -657,7 +657,7 @@ ${cached.body}`
               });
 
               messageCache.delete(
-                `${id}:${deletedKey.remoteJid}:${deletedKey.id}`
+                `${deletedKey.remoteJid}:${deletedKey.id}`
               );
               saveMessageCache();
             } catch (error) {
