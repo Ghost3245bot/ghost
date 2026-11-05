@@ -231,20 +231,57 @@ async function handleOwnerCommand(sock, msg, text) {
   };
 
   switch (command) {
+    case '!menu':
     case '!help':
       return reply(
-`👑 WOLFE TZ BOT
+`╔════════════════════════════╗
+║       🐺 WOLFE TZ BOT      ║
+║     ⚡ COMMAND CENTER      ║
+╚════════════════════════════╝
 
-!alive — Bot status
-!status — Settings
-!autoview on/off — Auto-view
-!autoreact on/off — Auto-react
-!setemoji 💜 — Reaction emoji
-!addclient 255XXXXXXXXX — Add client (pairing code to Owner)
-!clients — List clients
-!removeclient 255XXXXXXXXX — Remove client (alias: !delclient)
+👑  OWNER CONTROL PANEL
+━━━━━━━━━━━━━━━━━━━━━━
 
-Owner: ${OWNER_NUMBER}`
+🟢 !alive
+   Check bot connection
+
+📊 !status
+   View bot settings
+
+👥 !clients
+   View connected clients
+
+🔗 !addclient 255XXXXXXXXX
+   Add a WhatsApp client
+
+🗑️ !removeclient 255XXXXXXXXX
+   Remove a client
+
+━━━━━━━━━━━━━━━━━━━━━━
+🛡️  STATUS PROTECTION
+━━━━━━━━━━━━━━━━━━━━━━
+
+👁️ !autoview on/off
+   Automatic status viewing
+
+💜 !autoreact on/off
+   Automatic status reactions
+
+🎨 !setemoji 💜
+   Change reaction emoji
+
+━━━━━━━━━━━━━━━━━━━━━━
+⚙️  SYSTEM INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Owner: ${OWNER_NUMBER}
+Clients: ${clients.length}
+Auto-view: ${state.autoview ? 'ON' : 'OFF'}
+Auto-react: ${state.autoreact ? 'ON' : 'OFF'}
+
+━━━━━━━━━━━━━━━━━━━━━━
+       ⚡ POWERED BY WOLFE TZ
+       🐺 PROFESSIONAL EDITION`
       );
 
     case '!alive':
