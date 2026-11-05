@@ -395,11 +395,11 @@ async function startSocket(id, isOwner = false) {
     sock.sendMessage = async (jid, content, options) => {
       const result = await originalSendMessage(jid, content, options);
 
-      if (result?.key?.id && content && typeof content === 'object') {
+      // Baileys getMessage expects the generated protobuf IMessage.
+      if (result?.key?.id && result?.message) {
         const cacheKey = `${result.key.remoteJid || jid}:${result.key.id}`;
 
-        // Preserve the complete outgoing payload for Baileys retry requests.
-        outgoingMessageStore.set(cacheKey, content);
+        outgoingMessageStore.set(cacheKey, result.message);
 
         while (outgoingMessageStore.size > 500) {
           outgoingMessageStore.delete(
