@@ -194,6 +194,16 @@ async function handleStatus(sock, msg, sessionId) {
   if (!key.id) return;
 
   const participant = key.participant || msg.participant;
+
+  // WOLFE_STATUS_LID_DIAGNOSTICS
+  if (participant?.endsWith('@lid')) {
+    console.log('WOLFE STATUS LID DEBUG:', {
+      keyFields: Object.keys(key),
+      hasParticipantAlt: !!key.participantAlt,
+      hasMsgParticipantAlt: !!msg.participantAlt,
+      hasLidMapping: !!sock.signalRepository?.lidMapping
+    });
+  }
   const viewId = `${participant || sessionId}:${key.id}`;
 
   if (state.autoview && !state.viewed.includes(viewId)) {
